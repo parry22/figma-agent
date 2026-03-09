@@ -36,6 +36,7 @@ interface NodeData {
 interface AuditPayload {
   frameName: string;
   nodes: NodeData[];
+  screenshot?: string; // base64 JPEG of the frame for visual context
 }
 
 // Convert Figma RGB (0-1) to hex
@@ -204,7 +205,7 @@ function traverseNode(node: SceneNode, results: NodeData[], depth: number): void
 }
 
 // Build the full audit payload from the current selection
-function buildAuditPayload(): AuditPayload | null {
+async function buildAuditPayload(): Promise<AuditPayload | null> {
   const selection = figma.currentPage.selection;
 
   if (selection.length === 0) {
@@ -227,9 +228,36 @@ function buildAuditPayload(): AuditPayload | null {
     return null;
   }
 
+  // Capture a screenshot of the frame for visual context
+  let screenshot: string | undefined;
+  try {
+    if ("exportAsync" in rootNode) {
+      const bytes = await (rootNode as FrameNode).exportAsync({
+        format: "JPG",
+        constraint: { type: "SCALE", value: 0.5 },
+      });
+      // Convert to base64
+      const chunk = 8192;
+      const parts: string[] = [];
+      for (let i = 0; i < bytes.length; i += chunk) {
+        parts.push(
+          String.fromCharCode.apply(
+            null,
+            Array.from(bytes.subarray(i, i + chunk))
+          )
+        );
+      }
+      screenshot = btoa(parts.join(""));
+    }
+  } catch (e) {
+    // Screenshot export is best-effort — audit still works without it
+    console.error("Screenshot export failed:", e);
+  }
+
   return {
     frameName: rootNode.name,
     nodes,
+    screenshot,
   };
 }
 
@@ -245,9 +273,9 @@ function resolveFileKey(): string | undefined {
 // Send file key to UI on startup
 figma.ui.postMessage({ type: "init", fileKey: resolveFileKey() });
 
-figma.ui.onmessage = (msg: { type: string; [key: string]: any }) => {
+figma.ui.onmessage = async (msg: { type: string; [key: string]: any }) => {
   if (msg.type === "run-audit") {
-    const payload = buildAuditPayload();
+    const payload = await buildAuditPayload();
     if (payload) {
       figma.ui.postMessage({
         type: "audit-payload",

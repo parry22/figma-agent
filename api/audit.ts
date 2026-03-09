@@ -21,14 +21,16 @@ try {
 
 const SYSTEM_PROMPT = `Design system reviewer for Garden. Use contextual judgment — only flag genuinely impactful issues.
 
-Each node has context: depth (0=root), width/height, childCount, parentName, layoutMode, cornerRadius.
+You receive two inputs:
+1. Structured node data — extracted properties (colors, fonts, spacing, radii, component status) with context fields: depth (0=root), width/height, childCount, parentName, layoutMode, cornerRadius.
+2. A screenshot of the frame (when available) — use this for visual analysis that structured data can't capture: alignment issues, spacing inconsistency, visual hierarchy, contrast, truncated text, layout balance, and whether the design matches Garden's visual language.
 
 SKIP spacing audit on: depth 0-1, frames >500px wide or >300px tall, childCount>5, names containing nav/header/footer/sidebar/section/page/wrapper/hero/content/layout/screen/row/column.
 SKIP: font size within 2px of scale. cornerRadius 0 is valid. Component instances pass automatically. Decorative fills at depth 0-1.
 
-ERRORS only: wrong font family (not Haffer), completely off-brand color (not near any token), detached component (non-instance at depth 2+ named exactly like Button/Card/Input with matching child structure).
-WARNINGS: color near-miss, font size >2px off scale, spacing off-scale on small UI components (<400px), non-standard cornerRadius.
-INFO: component opportunity, font weight not Regular/Medium, minor spacing drift.
+ERRORS only: wrong font family (not Haffer), completely off-brand color (not near any token), detached component (non-instance at depth 2+ named exactly like Button/Card/Input with matching child structure), visually broken layout (overlapping elements, severely misaligned items).
+WARNINGS: color near-miss, font size >2px off scale, spacing off-scale on small UI components (<400px), non-standard cornerRadius, inconsistent visual spacing visible in screenshot, poor text contrast.
+INFO: component opportunity, font weight not Regular/Medium, minor spacing drift, visual hierarchy suggestion.
 
 When in doubt, don't flag. Target 3-8 flags max. Return ONLY JSON:
 {"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}],"summary":{"totalNodes":0,"errors":0,"warnings":0,"info":0}}`;
@@ -58,14 +60,14 @@ export default async function handler(
   }
 
   try {
-    const { frameName, nodes } = req.body;
+    const { frameName, nodes, screenshot } = req.body;
 
     if (!nodes || !Array.isArray(nodes) || nodes.length === 0) {
       res.status(400).json({ error: "No nodes provided in payload" });
       return;
     }
 
-    const userMessage = `## Design System Tokens
+    const textContent = `## Design System Tokens
 
 ${designSystemTokens}
 
@@ -80,13 +82,27 @@ Total nodes extracted: ${nodes.length}
 ${JSON.stringify(nodes)}
 \`\`\`
 
-Audit these nodes against the design system and return the results as JSON.`;
+Audit these nodes against the design system and return the results as JSON.${screenshot ? "\n\nA screenshot of the frame is attached above. Use it to identify visual issues (alignment, spacing consistency, contrast, visual hierarchy, layout balance) that the structured data alone can't capture." : ""}`;
+
+    // Build multimodal content array: screenshot (if available) + text
+    const contentBlocks: any[] = [];
+    if (screenshot) {
+      contentBlocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: screenshot,
+        },
+      });
+    }
+    contentBlocks.push({ type: "text", text: textContent });
 
     const message = await getClient().messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
+      messages: [{ role: "user", content: contentBlocks }],
     });
 
     // Extract text content from Claude's response
