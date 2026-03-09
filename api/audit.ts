@@ -19,7 +19,7 @@ try {
   designSystemTokens = "Design system tokens file not found.";
 }
 
-const SYSTEM_PROMPT = `You are a design system auditor for Hashira (Garden & PossibleWorks products).
+const SYSTEM_PROMPT = `You are a design system auditor for Garden (Hashira).
 
 You receive two inputs:
 1. The design system tokens (colors, typography, spacing, component rules)
@@ -30,9 +30,17 @@ Your job: compare every extracted value against the design system and identify m
 For each mismatch, return:
 - "node": the node name from the extracted data
 - "nodeId": the node ID for navigation
+- "category": exactly one of "color", "typography", "spacing", "corner-radius", "component"
 - "issue": a clear, concise description of the violation
 - "severity": one of "error", "warning", or "info"
-- "fix": a specific suggestion to fix it (e.g., "Change color from #FF0000 to #EF4444 (error token)")
+- "fix": a specific suggestion to fix it (e.g., "Change color from #FF0000 to #FC79C1 (action-primary)")
+
+Categories — assign EXACTLY ONE per flag:
+- "color": wrong hex value, off-brand color, color not in the token list
+- "typography": wrong font family, size, weight, or line height
+- "spacing": padding, gap, or margin not on the spacing scale
+- "corner-radius": border radius not matching the allowed values (12, 16, or 999)
+- "component": detached component, custom-built pattern that should use a library component
 
 Severity levels:
 - error: directly breaks the system (wrong component used, off-brand color, completely wrong font)
@@ -53,6 +61,7 @@ Return ONLY valid JSON in this exact format, no markdown, no explanation:
     {
       "node": "string",
       "nodeId": "string",
+      "category": "color" | "typography" | "spacing" | "corner-radius" | "component",
       "issue": "string",
       "severity": "error" | "warning" | "info",
       "fix": "string"
