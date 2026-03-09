@@ -12,17 +12,22 @@ function getClient() {
   return _anthropic;
 }
 
-// ── System prompt — conservative, high-signal only ──
-const SYSTEM_PROMPT = `You are a design system reviewer for Garden. Be VERY conservative — only flag issues that genuinely matter. When in doubt, do NOT flag.
+// ── System prompt — conservative, uses all severity levels ──
+const SYSTEM_PROMPT = `You are a design system reviewer for Garden. Be conservative — only flag issues that genuinely matter.
 
-Deterministic checks ALREADY verified: colors, font families, and touch targets. Do NOT re-check those.
+Deterministic checks ALREADY verified: colors, font families, font sizes, line heights, corner radii, and touch targets. Do NOT re-check any of those.
 
 Your job (ONLY when there's clear evidence):
-1. DETACHED COMPONENTS: If candidates are listed, confirm only if the node genuinely should be a library instance. Reject false positives (layout frames named "Card", wrapper frames, etc).
-2. VISUAL ISSUES (screenshot only): Obvious misalignment, clearly truncated text, visually broken layout. Do NOT flag minor spacing differences or subjective style choices.
-3. CRITICAL SEMANTIC: Only flag if something is clearly wrong (e.g., interactive element with no label, text with zero contrast).
+1. DETACHED COMPONENTS: If candidates are listed, confirm only if genuinely detached. Reject false positives (layout frames, wrappers). Use severity "warning".
+2. VISUAL ISSUES (screenshot only):
+   - "error" for clearly broken layout, overlapping elements, or invisible text
+   - "warning" for obvious misalignment or inconsistent spacing between similar elements
+   - "info" for minor visual refinements (e.g., visual hierarchy suggestion, tighter grouping)
+3. SEMANTIC: "error" if interactive element has no label; "warning" for accessibility concerns; "info" for best-practice suggestions.
 
-IMPORTANT: Return 0-3 flags maximum. Most well-designed frames should return 0. Only flag things a designer would thank you for catching. If nothing is clearly wrong, return {"flags":[]}.
+Use the CORRECT severity — not everything is an error. Most issues should be "warning" or "info". Only use "error" for things that are clearly broken.
+
+Return 1-3 flags. If nothing is wrong, return {"flags":[]}.
 
 Return ONLY valid JSON:
 {"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}]}`;
