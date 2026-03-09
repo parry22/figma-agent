@@ -67,7 +67,7 @@
 
   /* ── Summary Bar ── */
   .summary {
-    padding: 10px 16px;
+    padding: 8px 16px;
     background: var(--figma-color-bg-secondary, #f8f8f8);
     border-bottom: 1px solid var(--figma-color-border, #e5e5e5);
     display: none;
@@ -75,7 +75,7 @@
     font-size: 12px;
     font-weight: 500;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
   .summary.visible { display: flex; }
   .summary-row {
@@ -90,7 +90,7 @@
     padding: 2px 8px;
     border-radius: 10px;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
   }
   .badge-error { background: #FEE2E2; color: #DC2626; }
   .badge-warning { background: #FEF3C7; color: #D97706; }
@@ -134,7 +134,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
+    padding: 8px 16px;
     cursor: pointer;
     user-select: none;
     font-size: 12px;
@@ -159,7 +159,7 @@
   .category-icon svg { width: 16px; height: 16px; }
   .category-label { flex: 1; }
   .category-count {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     color: var(--figma-color-text-secondary, #999);
     background: var(--figma-color-bg, #fff);
@@ -182,7 +182,7 @@
 
   /* ── Flag Item ── */
   .flag-item {
-    padding: 10px 16px;
+    padding: 8px 16px;
     border-bottom: 1px solid var(--figma-color-border, #f0f0f0);
     cursor: pointer;
     transition: background 0.1s;
@@ -194,7 +194,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
   }
   .severity-dot {
     width: 8px;
@@ -213,26 +212,35 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .flag-severity {
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  .flag-chevron {
+    width: 10px;
+    height: 10px;
     flex-shrink: 0;
+    color: var(--figma-color-text-secondary, #bbb);
+    transition: transform 0.15s ease;
   }
-  .flag-severity.error { color: #DC2626; }
-  .flag-severity.warning { color: #D97706; }
-  .flag-severity.info { color: #2563EB; }
+  .flag-item.expanded .flag-chevron {
+    transform: rotate(90deg);
+  }
   .flag-issue {
-    font-size: 12px;
-    color: var(--figma-color-text, #333);
-    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--figma-color-text-secondary, #666);
     line-height: 1.4;
+    margin-top: 4px;
+    padding-left: 16px;
   }
   .flag-fix {
     font-size: 11px;
     color: var(--figma-color-text-secondary, #777);
     line-height: 1.4;
+    margin-top: 6px;
+    padding: 6px 0 2px 16px;
+    border-left: 2px solid var(--figma-color-border, #e0e0e0);
+    margin-left: 16px;
+    display: none;
+  }
+  .flag-item.expanded .flag-fix {
+    display: block;
   }
 
   /* ── States ── */
@@ -244,7 +252,7 @@
     justify-content: center;
     padding: 32px;
     text-align: center;
-    gap: 8px;
+    gap: 6px;
   }
   .state.hidden { display: none; }
   .state-icon {
@@ -301,7 +309,7 @@
   <div class="state" id="stateEmpty">
     <div class="state-icon">🔍</div>
     <div class="state-title">Select a frame and check</div>
-    <div class="state-desc">Select a frame in Figma, then click "Check Design" to audit it against the design system.</div>
+    <div class="state-desc">Select a frame, then hit Check Design.</div>
   </div>
 
   <!-- Loading State -->
@@ -327,7 +335,7 @@
   <div class="state hidden" id="stateClean">
     <div class="state-icon">✅</div>
     <div class="state-title">No issues found</div>
-    <div class="state-desc">This frame passes all design system checks.</div>
+    <div class="state-desc">Looking good — no issues detected.</div>
   </div>
 
   <!-- Results List -->
@@ -504,12 +512,12 @@
       for (const flag of items) {
         html += `<div class="flag-item" data-node-id="${flag.nodeId || ''}">
           <div class="flag-header">
+            <svg class="flag-chevron" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2l4 4-4 4"/></svg>
             <div class="severity-dot ${flag.severity}"></div>
             <span class="flag-node">${escapeHtml(flag.node)}</span>
-            <span class="flag-severity ${flag.severity}">${flag.severity}</span>
           </div>
           <div class="flag-issue">${escapeHtml(flag.issue)}</div>
-          <div class="flag-fix">Fix: ${escapeHtml(flag.fix)}</div>
+          <div class="flag-fix">${escapeHtml(flag.fix)}</div>
         </div>`;
       }
 
@@ -525,9 +533,14 @@
       });
     });
 
-    // Click flag item to focus node in Figma
+    // Click flag item to expand/collapse fix
     resultsContainer.querySelectorAll('.flag-item').forEach(item => {
       item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        item.classList.toggle('expanded');
+      });
+      // Double-click to focus the node in Figma
+      item.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         const nodeId = item.getAttribute('data-node-id');
         if (nodeId) {
