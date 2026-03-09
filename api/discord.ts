@@ -29,17 +29,19 @@ const EMBED_COLORS = {
   clean: 0x10b981,   // green
 };
 
-function setCorsHeaders(res: VercelResponse): void {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
+  const origin = (req.headers.origin as string) || "*";
+  res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
-  setCorsHeaders(res);
+  setCorsHeaders(req, res);
 
   if (req.method === "OPTIONS") {
     res.status(200).end();
