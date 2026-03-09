@@ -231,27 +231,25 @@ async function buildAuditPayload(): Promise<AuditPayload | null> {
   // Capture a screenshot of the frame for visual context
   let screenshot: string | undefined;
   try {
-    if ("exportAsync" in rootNode) {
-      const bytes = await (rootNode as FrameNode).exportAsync({
+    // Only attempt export on node types that actually support it
+    const exportable = rootNode.type === "FRAME" || rootNode.type === "COMPONENT" ||
+      rootNode.type === "COMPONENT_SET" || rootNode.type === "INSTANCE" ||
+      rootNode.type === "GROUP" || rootNode.type === "SECTION";
+
+    if (exportable && typeof (rootNode as any).exportAsync === "function") {
+      const bytes = await (rootNode as any).exportAsync({
         format: "JPG",
         constraint: { type: "SCALE", value: 0.5 },
       });
-      // Convert to base64
-      const chunk = 8192;
-      const parts: string[] = [];
-      for (let i = 0; i < bytes.length; i += chunk) {
-        parts.push(
-          String.fromCharCode.apply(
-            null,
-            Array.from(bytes.subarray(i, i + chunk))
-          )
-        );
+      // Convert Uint8Array to base64
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
       }
-      screenshot = btoa(parts.join(""));
+      screenshot = btoa(binary);
     }
-  } catch (e) {
-    // Screenshot export is best-effort — audit still works without it
-    console.error("Screenshot export failed:", e);
+  } catch (_e) {
+    // Screenshot is best-effort — audit works fine without it
   }
 
   return {

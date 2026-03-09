@@ -3,27 +3,11 @@
 // If LLM fails (rate limit, timeout), deterministic results still returned.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { readFileSync } from "fs";
-import { join } from "path";
-
-import type { NodeData, DesignTokens, AuditFlag } from "./_lib/types";
+import type { NodeData, AuditFlag } from "./_lib/types";
+import { TOKENS } from "./_lib/tokens";
 import { runDeterministicAudit } from "./_lib/deterministic";
 import { buildSlimNodes, shouldCallLLM, runLLMAudit } from "./_lib/llm";
 import { mergeFlags, buildSummary } from "./_lib/merge";
-
-// ── Load tokens.json once at cold start ──
-let _tokens: DesignTokens | null = null;
-function getTokens(): DesignTokens {
-  if (!_tokens) {
-    const raw = readFileSync(
-      join(__dirname, "..", "design-system", "tokens.json"),
-      "utf-8"
-    );
-    _tokens = JSON.parse(raw) as DesignTokens;
-    console.log("Loaded tokens.json:", Object.keys(_tokens).join(", "));
-  }
-  return _tokens;
-}
 
 // ── CORS ──
 function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
@@ -63,23 +47,14 @@ export default async function handler(
       return;
     }
 
-    // 1. Load design tokens
-    const tokens = getTokens();
+    // 1. Run deterministic audit (color, typography, spacing, components)
+    const deterministicFlags = runDeterministicAudit(nodes, TOKENS);
 
-    // 2. Run deterministic audit (color, typography, spacing, radius, components)
-    const deterministicFlags = runDeterministicAudit(nodes, tokens);
-    console.log(
-      `Deterministic: ${deterministicFlags.length} flags from ${nodes.length} nodes`
-    );
-
-    // 3. Build slim nodes for LLM, decide if LLM is needed
+    // 2. Build slim nodes for LLM, decide if LLM is needed
     const slimNodes = buildSlimNodes(nodes, deterministicFlags);
     const needLLM = shouldCallLLM(slimNodes, screenshot, deterministicFlags);
-    console.log(
-      `LLM decision: ${needLLM ? "YES" : "SKIP"} (${slimNodes.length} slim nodes, screenshot=${!!screenshot})`
-    );
 
-    // 4. Optionally call LLM — wrapped in try/catch for graceful fallback
+    // 3. Optionally call LLM — wrapped in try/catch for graceful fallback
     let llmFlags: AuditFlag[] = [];
     if (needLLM) {
       try {
@@ -89,30 +64,20 @@ export default async function handler(
           screenshot,
           deterministicFlags
         );
-        console.log(`LLM: ${llmFlags.length} additional flags`);
       } catch (llmError: any) {
-        // LLM failed — log it but continue with deterministic results
+        // LLM failed — continue with deterministic results only
         console.error(
           "LLM audit failed, falling back to deterministic only:",
           llmError?.message || llmError
         );
-        // If it's a rate limit, still pass through the 429 hint to client
-        // but don't fail the whole audit
-        if (llmError?.status === 429) {
-          console.warn("Rate limited on LLM — returning deterministic results only");
-        }
       }
     }
 
-    // 5. Merge flags and build summary
+    // 4. Merge flags and build summary
     const flags = mergeFlags(deterministicFlags, llmFlags);
     const summary = buildSummary(nodes.length, flags);
 
-    console.log(
-      `Final: ${flags.length} flags (${summary.errors}E/${summary.warnings}W/${summary.info}I)`
-    );
-
-    // 6. Return
+    // 5. Return
     res.status(200).json({ flags, summary });
   } catch (error: any) {
     console.error("Audit error:", error);

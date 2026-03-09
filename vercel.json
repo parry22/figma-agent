@@ -2,8 +2,7 @@
   "outputDirectory": "public",
   "functions": {
     "api/**/*.ts": {
-      "maxDuration": 30,
-      "includeFiles": "design-system/tokens.json"
+      "maxDuration": 30
     }
   },
   "routes": [

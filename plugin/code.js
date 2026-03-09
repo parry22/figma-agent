@@ -131,25 +131,19 @@ async function buildAuditPayload() {
   }
   let screenshot;
   try {
-    if ("exportAsync" in rootNode) {
+    const exportable = rootNode.type === "FRAME" || rootNode.type === "COMPONENT" || rootNode.type === "COMPONENT_SET" || rootNode.type === "INSTANCE" || rootNode.type === "GROUP" || rootNode.type === "SECTION";
+    if (exportable && typeof rootNode.exportAsync === "function") {
       const bytes = await rootNode.exportAsync({
         format: "JPG",
         constraint: { type: "SCALE", value: 0.5 }
       });
-      const chunk = 8192;
-      const parts = [];
-      for (let i = 0; i < bytes.length; i += chunk) {
-        parts.push(
-          String.fromCharCode.apply(
-            null,
-            Array.from(bytes.subarray(i, i + chunk))
-          )
-        );
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
       }
-      screenshot = btoa(parts.join(""));
+      screenshot = btoa(binary);
     }
-  } catch (e) {
-    console.error("Screenshot export failed:", e);
+  } catch (_e) {
   }
   return {
     frameName: rootNode.name,

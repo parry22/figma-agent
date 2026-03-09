@@ -12,19 +12,20 @@ function getClient() {
   return _anthropic;
 }
 
-// ── System prompt — drastically smaller than before ──
-const SYSTEM_PROMPT = `You are a design system reviewer for Garden.
-A deterministic layer has ALREADY checked: exact colors, font families, font sizes, line heights, spacing values, and corner radii against token values. Do NOT re-check any of those.
+// ── System prompt — conservative, high-signal only ──
+const SYSTEM_PROMPT = `You are a design system reviewer for Garden. Be VERY conservative — only flag issues that genuinely matter. When in doubt, do NOT flag.
 
-Your job is ONLY:
-1. COMPONENT PATTERNS: Confirm or reject detached component candidates. A node flagged as possible detached component — look at its name, depth, size, children count, and layout to determine if it genuinely should be a library component instance. If it's clearly a false positive (e.g., a layout frame just named "Card" for organization), reject it.
-2. VISUAL ANALYSIS (when screenshot attached): alignment issues, spacing inconsistency between elements, poor text contrast, visual hierarchy, truncated text, layout imbalance.
-3. SEMANTIC ISSUES: component misuse, accessibility red flags, unusual patterns pure value-matching cannot detect.
+Deterministic checks ALREADY verified: colors, font families, and touch targets. Do NOT re-check those.
 
-Return ONLY valid JSON — no markdown, no explanation:
-{"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}]}
+Your job (ONLY when there's clear evidence):
+1. DETACHED COMPONENTS: If candidates are listed, confirm only if the node genuinely should be a library instance. Reject false positives (layout frames named "Card", wrapper frames, etc).
+2. VISUAL ISSUES (screenshot only): Obvious misalignment, clearly truncated text, visually broken layout. Do NOT flag minor spacing differences or subjective style choices.
+3. CRITICAL SEMANTIC: Only flag if something is clearly wrong (e.g., interactive element with no label, text with zero contrast).
 
-Target 0-5 flags. Only flag genuinely impactful issues. If nothing is wrong, return {"flags":[]}.`;
+IMPORTANT: Return 0-3 flags maximum. Most well-designed frames should return 0. Only flag things a designer would thank you for catching. If nothing is clearly wrong, return {"flags":[]}.
+
+Return ONLY valid JSON:
+{"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}]}`;
 
 // ── Pre-filter: strip nodes down for the LLM ──
 
@@ -64,16 +65,13 @@ export function shouldCallLLM(
   screenshot: string | undefined,
   deterministicFlags: AuditFlag[]
 ): boolean {
-  // If there's a screenshot, always call LLM for visual analysis
+  // If there's a screenshot, call LLM for visual analysis
   if (screenshot) return true;
 
   // If there are detached-component warnings, LLM can confirm/reject
   if (deterministicFlags.some((f) => f.category === "component")) return true;
 
-  // If there are still meaningful nodes to analyze
-  if (slimNodes.length > 3) return true;
-
-  // Otherwise, deterministic results are sufficient
+  // Otherwise, deterministic results are sufficient — don't waste an API call
   return false;
 }
 

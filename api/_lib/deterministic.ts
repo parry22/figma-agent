@@ -1,6 +1,11 @@
 // ── Deterministic Audit Engine ──
 // Pure-function checks against design tokens. No LLM needed.
-// Covers: colors, typography, spacing, corner radius, component detection.
+// PHILOSOPHY: Only flag genuinely impactful issues. No guesswork.
+// - Wrong font family → always an error
+// - Truly off-brand color → error
+// - Tiny touch target on interactive element → error
+// - Detached component candidate → warning
+// Everything else is left to designer discretion.
 
 import type { NodeData, AuditFlag, DesignTokens } from "./types";
 
@@ -18,13 +23,11 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 function rgbToLab(r: number, g: number, b: number): Lab {
-  // sRGB → linear → XYZ → Lab
   let rl = r / 255, gl = g / 255, bl = b / 255;
   rl = rl > 0.04045 ? Math.pow((rl + 0.055) / 1.055, 2.4) : rl / 12.92;
   gl = gl > 0.04045 ? Math.pow((gl + 0.055) / 1.055, 2.4) : gl / 12.92;
   bl = bl > 0.04045 ? Math.pow((bl + 0.055) / 1.055, 2.4) : bl / 12.92;
 
-  // D65 reference white
   let x = (rl * 0.4124564 + gl * 0.3575761 + bl * 0.1804375) / 0.95047;
   let y = rl * 0.2126729 + gl * 0.7151522 + bl * 0.0721750;
   let z = (rl * 0.0193339 + gl * 0.1191920 + bl * 0.9503041) / 1.08883;
@@ -43,7 +46,6 @@ function deltaE(lab1: Lab, lab2: Lab): number {
   );
 }
 
-// Pre-computed palette in Lab space for fast lookups
 interface PaletteEntry {
   hex: string;
   name: string;
@@ -69,7 +71,9 @@ function findClosestColor(hex: string, palette: PaletteEntry[]): { entry: Palett
   return { entry: closest, distance: minDist };
 }
 
-// ── Check functions ──
+// ── Check: Colors ──
+// Only flag colors that are genuinely off-brand (Delta-E > tolerance).
+// Near-misses are left alone — designers often tweak colors intentionally.
 
 function checkColors(nodes: NodeData[], tokens: DesignTokens, palette: PaletteEntry[]): AuditFlag[] {
   const flags: AuditFlag[] = [];
@@ -81,156 +85,67 @@ function checkColors(nodes: NodeData[], tokens: DesignTokens, palette: PaletteEn
     for (const color of node.colors) {
       const upper = color.toUpperCase();
 
-      // Exact match — pass
+      // Exact match → pass
       if (paletteHexSet.has(upper)) continue;
 
       const { entry, distance } = findClosestColor(upper, palette);
 
-      if (distance <= 3) {
-        // Very close — acceptable, skip
-        continue;
-      } else if (distance <= tokens.colors.toleranceDeltaE) {
-        // Near-miss
-        flags.push({
-          node: node.name,
-          nodeId: node.id,
-          category: "color",
-          severity: "warning",
-          issue: `Color ${upper} is close to ${entry.name} (${entry.hex}) but slightly off (Delta-E ${distance.toFixed(1)})`,
-          fix: `Snap to ${entry.hex}`,
-        });
-      } else {
-        // Off-palette
-        flags.push({
-          node: node.name,
-          nodeId: node.id,
-          category: "color",
-          severity: "error",
-          issue: `Off-palette color ${upper} — nearest token is ${entry.name} (${entry.hex}, Delta-E ${distance.toFixed(1)})`,
-          fix: `Replace with ${entry.hex} or another token color`,
-        });
-      }
+      // Within tolerance → close enough, pass
+      if (distance <= tokens.colors.toleranceDeltaE) continue;
+
+      // Truly off-palette → flag as error
+      flags.push({
+        node: node.name,
+        nodeId: node.id,
+        category: "color",
+        severity: "error",
+        issue: `Off-palette color ${upper} — nearest token is ${entry.name} (${entry.hex})`,
+        fix: `Replace with ${entry.hex} or another token color`,
+      });
     }
   }
   return flags;
 }
+
+// ── Check: Typography ──
+// ONLY flag wrong font family. Font sizes and line heights are left to designers —
+// they often use custom values intentionally and flagging every deviation is noise.
 
 function checkTypography(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
   const flags: AuditFlag[] = [];
   const familiesLower = tokens.typography.allowedFamilies.map((f) => f.toLowerCase());
-  const sizeSet = new Set(tokens.typography.allowedSizes);
 
   for (const node of nodes) {
     if (node.isComponentInstance || !node.typography) continue;
-    const typo = node.typography;
 
-    // Font family check
-    if (!familiesLower.includes(typo.family.toLowerCase())) {
+    if (!familiesLower.includes(node.typography.family.toLowerCase())) {
       flags.push({
         node: node.name,
         nodeId: node.id,
         category: "typography",
         severity: "error",
-        issue: `Font family "${typo.family}" is not allowed`,
+        issue: `Font family "${node.typography.family}" is not allowed`,
         fix: `Use Haffer`,
       });
-    }
-
-    // Font size check
-    if (!sizeSet.has(typo.size)) {
-      // Find the two nearest allowed sizes for the fix message
-      const sorted = tokens.typography.allowedSizes.slice().sort((a, b) => Math.abs(a - typo.size) - Math.abs(b - typo.size));
-      const nearest = sorted[0];
-      const secondNearest = sorted[1];
-      const scaleEntry = tokens.typography.scale.find((s) => s.size === nearest);
-      const scaleEntry2 = tokens.typography.scale.find((s) => s.size === secondNearest);
-      const fixParts = [scaleEntry ? `${nearest}px (${scaleEntry.name})` : `${nearest}px`];
-      if (secondNearest && scaleEntry2) fixParts.push(`${secondNearest}px (${scaleEntry2.name})`);
-
-      flags.push({
-        node: node.name,
-        nodeId: node.id,
-        category: "typography",
-        severity: "error",
-        issue: `Font size ${typo.size}px is not on the type scale`,
-        fix: `Use ${fixParts.join(" or ")}`,
-      });
-    }
-
-    // Line height check (only if size matches a scale entry)
-    if (typo.lineHeight !== null && sizeSet.has(typo.size)) {
-      const scaleEntry = tokens.typography.scale.find((s) => s.size === typo.size);
-      if (scaleEntry) {
-        const diff = Math.abs(typo.lineHeight - scaleEntry.lineHeight);
-        if (diff > tokens.typography.lineHeightTolerance) {
-          flags.push({
-            node: node.name,
-            nodeId: node.id,
-            category: "typography",
-            severity: "warning",
-            issue: `Line height ${typo.lineHeight}px doesn't match ${scaleEntry.name} spec (expected ${scaleEntry.lineHeight}px)`,
-            fix: `Set line height to ${scaleEntry.lineHeight}px`,
-          });
-        }
-      }
     }
   }
   return flags;
 }
 
-function checkSpacing(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
+// ── Check: Touch targets ──
+// Only flag interactive elements that are too small to tap.
+// General spacing-grid checks are removed — too noisy for real designs.
+
+function checkTouchTargets(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
   const flags: AuditFlag[] = [];
-  const scaleSet = new Set(tokens.spacing.scale);
-  const skip = tokens.spacing.skip;
 
   for (const node of nodes) {
-    if (node.isComponentInstance || !node.spacing) continue;
+    if (node.isComponentInstance) continue;
 
-    // Apply skip rules
-    if (node.depth <= skip.maxDepth) continue;
-    if (node.width > skip.maxWidth) continue;
-    if (node.height > skip.maxHeight) continue;
-    if (node.childCount > skip.maxChildCount) continue;
-    const nameLower = node.name.toLowerCase();
-    if (skip.namePatterns.some((p) => nameLower.includes(p))) continue;
-
-    // Check each spacing value
-    const spacingValues: { label: string; value: number }[] = [
-      { label: "padding-top", value: node.spacing.paddingTop },
-      { label: "padding-right", value: node.spacing.paddingRight },
-      { label: "padding-bottom", value: node.spacing.paddingBottom },
-      { label: "padding-left", value: node.spacing.paddingLeft },
-      { label: "gap", value: node.spacing.gap },
-    ];
-
-    for (const { label, value } of spacingValues) {
-      if (value === 0) continue; // Zero is always fine
-      if (scaleSet.has(value)) continue; // Exact match
-
-      // Find nearest scale value
-      let nearest = tokens.spacing.scale[0];
-      let minDiff = Infinity;
-      for (const s of tokens.spacing.scale) {
-        const diff = Math.abs(s - value);
-        if (diff < minDiff) { minDiff = diff; nearest = s; }
-      }
-
-      if (minDiff <= tokens.spacing.tolerance) continue; // Within tolerance
-
-      flags.push({
-        node: node.name,
-        nodeId: node.id,
-        category: "spacing",
-        severity: "warning",
-        issue: `${label} is ${value}px — not on the 4px spacing scale`,
-        fix: `Use ${nearest}px`,
-      });
-    }
-
-    // Touch target check for interactive elements
     const isInteractive = /button|btn|chip|link|cta|toggle|switch/i.test(node.name) ||
       (node.componentName && /button|btn|chip|link|cta|toggle|switch/i.test(node.componentName));
-    if (isInteractive && node.height < tokens.spacing.minTouchTarget) {
+
+    if (isInteractive && node.height > 0 && node.height < tokens.spacing.minTouchTarget) {
       flags.push({
         node: node.name,
         nodeId: node.id,
@@ -244,61 +159,8 @@ function checkSpacing(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
   return flags;
 }
 
-function checkCornerRadius(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
-  const flags: AuditFlag[] = [];
-  const tokenSet = new Set(tokens.cornerRadius.tokens);
-
-  for (const node of nodes) {
-    if (node.isComponentInstance) continue;
-    if (node.cornerRadius === undefined || node.cornerRadius === "mixed") continue;
-    const radius = node.cornerRadius;
-
-    // 0 is always valid
-    if (radius === 0) continue;
-
-    const nameLower = node.name.toLowerCase();
-
-    // Component-specific rules
-    for (const [component, expectedRadius] of Object.entries(tokens.cornerRadius.componentRules)) {
-      if (nameLower.includes(component)) {
-        if (Math.abs(radius - expectedRadius) > tokens.cornerRadius.tolerance) {
-          flags.push({
-            node: node.name,
-            nodeId: node.id,
-            category: "corner-radius",
-            severity: "error",
-            issue: `${component} has ${radius}px radius — should be ${expectedRadius}px`,
-            fix: `Set corner radius to ${expectedRadius}px`,
-          });
-        }
-        // Skip general check if we matched a component rule
-        continue;
-      }
-    }
-
-    // General check
-    if (tokenSet.has(radius)) continue; // Exact match
-
-    let nearest = tokens.cornerRadius.tokens[0];
-    let minDiff = Infinity;
-    for (const t of tokens.cornerRadius.tokens) {
-      const diff = Math.abs(t - radius);
-      if (diff < minDiff) { minDiff = diff; nearest = t; }
-    }
-
-    if (minDiff <= tokens.cornerRadius.tolerance) continue; // Within tolerance
-
-    flags.push({
-      node: node.name,
-      nodeId: node.id,
-      category: "corner-radius",
-      severity: "warning",
-      issue: `Non-standard corner radius ${radius}px`,
-      fix: `Use ${nearest}px`,
-    });
-  }
-  return flags;
-}
+// ── Check: Detached components ──
+// Non-instance nodes whose name exactly matches a required component name.
 
 function checkComponents(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
   const flags: AuditFlag[] = [];
@@ -326,19 +188,24 @@ function checkComponents(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
   return flags;
 }
 
+// ── Severity ranking for sorting ──
+const SEVERITY_RANK: Record<string, number> = { error: 0, warning: 1, info: 2 };
+
 // ── Main entry point ──
 
+const MAX_FLAGS = 10;
+
 export function runDeterministicAudit(nodes: NodeData[], tokens: DesignTokens): AuditFlag[] {
-  // Pre-compute palette lookup (Lab colors cached for all checks)
   const palette = buildPaletteLookup(tokens.colors.palette);
 
   const flags: AuditFlag[] = [
     ...checkColors(nodes, tokens, palette),
     ...checkTypography(nodes, tokens),
-    ...checkSpacing(nodes, tokens),
-    ...checkCornerRadius(nodes, tokens),
+    ...checkTouchTargets(nodes, tokens),
     ...checkComponents(nodes, tokens),
   ];
 
-  return flags;
+  // Sort: errors first, then warnings, then info. Cap at MAX_FLAGS.
+  flags.sort((a, b) => (SEVERITY_RANK[a.severity] ?? 2) - (SEVERITY_RANK[b.severity] ?? 2));
+  return flags.slice(0, MAX_FLAGS);
 }
