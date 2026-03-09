@@ -1,4 +1,4 @@
-"use strict";
+// plugin/code.ts
 function rgbToHex(r, g, b) {
   const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
