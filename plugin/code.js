@@ -141,7 +141,11 @@
     if (msg.type === "run-audit") {
       const payload = buildAuditPayload();
       if (payload) {
-        figma.ui.postMessage({ type: "audit-payload", payload });
+        figma.ui.postMessage({
+          type: "audit-payload",
+          payload,
+          fileKey: figma.fileKey
+        });
       }
     }
     if (msg.type === "notify") {

@@ -241,8 +241,12 @@ figma.ui.onmessage = (msg: { type: string; [key: string]: any }) => {
   if (msg.type === "run-audit") {
     const payload = buildAuditPayload();
     if (payload) {
-      // Send extracted data to UI so it can make the HTTP call
-      figma.ui.postMessage({ type: "audit-payload", payload });
+      // Send extracted data + file key to UI so it can make the HTTP call
+      figma.ui.postMessage({
+        type: "audit-payload",
+        payload,
+        fileKey: figma.fileKey,
+      });
     }
   }
 
