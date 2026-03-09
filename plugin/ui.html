@@ -503,7 +503,7 @@
   function extractFileKey(url) {
     try {
       // Matches: figma.com/design/KEY/..., figma.com/file/KEY/..., figma.com/proto/KEY/...
-      const m = url.match(/figma\.com\/(?:design|file|proto)\/([a-zA-Z0-9]+)/);
+      const m = url.match(/figma\.com\/(?:design|file|proto|board)\/([a-zA-Z0-9_-]+)/);
       return m ? m[1] : null;
     } catch { return null; }
   }
@@ -725,6 +725,7 @@
           });
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
+            console.error('Comment error:', JSON.stringify(errData));
             throw new Error(errData.error || `HTTP ${res.status}`);
           }
           btn.classList.remove('sending');
