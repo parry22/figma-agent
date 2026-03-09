@@ -1,7 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Anthropic from "@anthropic-ai/sdk";
-import { readFileSync } from "fs";
-import { join } from "path";
 
 // Client created lazily so env vars are guaranteed to be loaded first
 let _anthropic: Anthropic | null = null;
@@ -10,30 +8,62 @@ function getClient() {
   return _anthropic;
 }
 
-// Load design system tokens at cold start
-const tokensPath = join(process.cwd(), "design-system", "tokens.md");
-let designSystemTokens: string;
-try {
-  designSystemTokens = readFileSync(tokensPath, "utf-8");
-} catch {
-  designSystemTokens = "Design system tokens file not found.";
-}
+// ── Compact design tokens (embedded, not loaded from file) ──
+// This is a token-efficient representation of the full design-system/tokens.md.
+// The full markdown file remains the documentation source of truth.
+const DESIGN_TOKENS = `GARDEN DESIGN TOKENS
 
-const SYSTEM_PROMPT = `Design system reviewer for Garden. Use contextual judgment — only flag genuinely impactful issues.
+COLORS (all recognized hex values):
+#FC79C1 rose/action-primary | #FF65BA action-primary-hover | #FFC4E4 tertiary/light-rose | #F29FCD brand-rose-soft
+#473C75 iris/action-secondary/text-primary | #402E8E action-secondary-hover | #908AAD text-secondary/mid-grey
+#E4EBF2 bg-base/mist | #FFFFFF white/cards/text-on-action | #000000 black | #181325 elderberry/dark-bg | #22242B dark-overlay-base
+#1DC089 status-success | #FF005C status-error
+Overlays: #FFFFFF@70%(strong) @50%(mid) @30%(soft) @10%(subtle) | #22242B@30%(dark-soft)
+Tolerance: colors within Delta-E 5 of a recognized color are acceptable.
 
-You receive two inputs:
-1. Structured node data — extracted properties (colors, fonts, spacing, radii, component status) with context fields: depth (0=root), width/height, childCount, parentName, layoutMode, cornerRadius.
-2. A screenshot of the frame (when available) — use this for visual analysis that structured data can't capture: alignment issues, spacing inconsistency, visual hierarchy, contrast, truncated text, layout balance, and whether the design matches Garden's visual language.
+TYPOGRAPHY:
+Font: Haffer only (also appears as "Haffer-TRIAL"). Any other font = ERROR.
+Weights: Regular=400, Medium=570 (also accept 500 as Medium).
+Scale (size/lineHeight): 32/40(h1) | 20/24(h2) | 16/20(h3) | 14/20(h4) | 12/16(h5) | 10/12(h6)
+Each level has Medium and Regular variants. Allowed sizes: 10,12,14,16,20,32.
 
-SKIP spacing audit on: depth 0-1, frames >500px wide or >300px tall, childCount>5, names containing nav/header/footer/sidebar/section/page/wrapper/hero/content/layout/screen/row/column.
-SKIP: font size within 2px of scale. cornerRadius 0 is valid. Component instances pass automatically. Decorative fills at depth 0-1.
+CORNER RADIUS: 0(always ok) | 8(sm) | 12(buttons/inputs) | 16(cards/outer) | 24(chips/pills) | 999(circles)
+Tolerance: within 4px of token = near-match, not error. Buttons must be 12. Chips must be 24.
 
-ERRORS only: wrong font family (not Haffer), completely off-brand color (not near any token), detached component (non-instance at depth 2+ named exactly like Button/Card/Input with matching child structure), visually broken layout (overlapping elements, severely misaligned items).
-WARNINGS: color near-miss, font size >2px off scale, spacing off-scale on small UI components (<400px), non-standard cornerRadius, inconsistent visual spacing visible in screenshot, poor text contrast.
-INFO: component opportunity, font weight not Regular/Medium, minor spacing drift, visual hierarchy suggestion.
+SPACING (4px base): 4|8|12|16|20|24|32|40|48|56|64|80
+Skip spacing checks on: depth 0-1, >500px wide, >300px tall, childCount>5, layout containers (nav/header/footer/sidebar/section/page/wrapper/hero/content/layout/screen).
+Tolerance: within 2px of scale value is acceptable. Min touch target: 44px.
 
-When in doubt, don't flag. Target 3-8 flags max. Return ONLY JSON:
-{"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}],"summary":{"totalNodes":0,"errors":0,"warnings":0,"info":0}}`;
+BUTTONS: Large=48h,px24,16px/20,Medium-weight | Med=40h,px24,14px/20 | Small=36h,px24,12px/16. All rounded-12, text-white.
+Types: Primary=#FC79C1 | Secondary=#473C75 | Tertiary=#FFC4E4(text=#473C75) | Disabled=reduced-opacity.
+
+CHIPS: Default=32h,rounded-24,pl12/pr8/py4,16px,Regular,bg-white,text=#473C75,gap-8 | Small=24h,12px | ChipButton=48h.
+
+ICONS: Standard 20x20px.
+
+EFFECTS: Background blur 150px for glass/frosted panels. Garden uses blur not drop-shadows.
+
+LAYOUT: Desktop=1440w | Mobile=360w | Modal=600x336.
+
+COMPONENTS (must use library instances, flag if detached):
+Button, Chip, Input, Select, Card, Avatar, Badge, Dialog/Modal, Tooltip, TabSwitch, Breadcrumb, NotificationToast, SearchBar, Paginator, WalletCard, Header, Footer.
+Flag as detached only if: non-instance AND name matches AND depth 2+ AND child structure matches.
+
+SEVERITY:
+ERROR: wrong font family, completely off-brand color, detached component, visually broken layout.
+WARNING: color near-miss, font size >2px off scale, off-scale spacing on small UI, non-standard radius, inconsistent visual spacing, poor contrast.
+INFO: component opportunity, unusual font weight, minor spacing drift, visual hierarchy suggestion.`;
+
+const SYSTEM_PROMPT = `You are a design system reviewer for Garden. Use contextual judgment — only flag genuinely impactful issues.
+
+You receive structured node data (colors, fonts, spacing, radii, component status) with context: depth, size, childCount, parentName, layoutMode. When a screenshot is attached, also check for visual issues (alignment, spacing consistency, contrast, hierarchy, truncated text, layout balance).
+
+Component instances pass automatically. When in doubt, don't flag. Target 3-8 flags max.
+
+Return ONLY valid JSON — no markdown, no explanation:
+{"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}],"summary":{"totalNodes":0,"errors":0,"warnings":0,"info":0}}
+
+${DESIGN_TOKENS}`;
 
 function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
   const origin = (req.headers.origin as string) || "*";
@@ -41,6 +71,27 @@ function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Credentials", "true");
+}
+
+// Retry helper with exponential backoff for rate limits
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (error?.status === 429 && attempt < maxRetries) {
+        // Parse retry-after header or use exponential backoff
+        const retryAfter = error?.headers?.["retry-after"]
+          ? parseInt(error.headers["retry-after"], 10) * 1000
+          : (attempt + 1) * 3000; // 3s, 6s
+        console.log(`Rate limited, retrying in ${retryAfter}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, retryAfter));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Unreachable");
 }
 
 export default async function handler(
@@ -67,24 +118,10 @@ export default async function handler(
       return;
     }
 
-    const textContent = `## Design System Tokens
+    // User message: only node data (tokens are in the cached system prompt)
+    const userText = `Frame: "${frameName}" | ${nodes.length} nodes\n${JSON.stringify(nodes)}${screenshot ? "\n\nScreenshot attached — check for visual issues too." : ""}`;
 
-${designSystemTokens}
-
----
-
-## Extracted Figma Node Data
-
-Frame: "${frameName}"
-Total nodes extracted: ${nodes.length}
-
-\`\`\`json
-${JSON.stringify(nodes)}
-\`\`\`
-
-Audit these nodes against the design system and return the results as JSON.${screenshot ? "\n\nA screenshot of the frame is attached above. Use it to identify visual issues (alignment, spacing consistency, contrast, visual hierarchy, layout balance) that the structured data alone can't capture." : ""}`;
-
-    // Build multimodal content array: screenshot (if available) + text
+    // Build multimodal content: screenshot (if available) + text
     const contentBlocks: any[] = [];
     if (screenshot) {
       contentBlocks.push({
@@ -96,14 +133,24 @@ Audit these nodes against the design system and return the results as JSON.${scr
         },
       });
     }
-    contentBlocks.push({ type: "text", text: textContent });
+    contentBlocks.push({ type: "text", text: userText });
 
-    const message = await getClient().messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: contentBlocks }],
-    });
+    const message = await callWithRetry(() =>
+      getClient().messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        // System prompt + tokens cached together — repeat calls within 5 min
+        // use cached version at 90% lower token cost
+        system: [
+          {
+            type: "text",
+            text: SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [{ role: "user", content: contentBlocks }],
+      })
+    );
 
     // Extract text content from Claude's response
     const textBlock = message.content.find((block) => block.type === "text");
@@ -163,7 +210,7 @@ Audit these nodes against the design system and return the results as JSON.${scr
     console.error("Audit error:", error);
 
     if (error?.status === 429) {
-      res.status(429).json({ error: "Rate limited. Please try again shortly." });
+      res.status(429).json({ error: "Rate limited — please wait 10 seconds and try again." });
       return;
     }
 

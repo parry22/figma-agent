@@ -812,11 +812,24 @@
     if (msg.type === 'audit-payload') {
       const apiUrl = API_URL;
       try {
-        const res = await fetch(`${apiUrl}/api/audit`, {
+        // Retry-aware fetch: if backend returns 429, wait and retry once
+        let res = await fetch(`${apiUrl}/api/audit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(msg.payload),
         });
+
+        // Client-side retry on rate limit (429)
+        if (res.status === 429) {
+          document.getElementById('loadingTitle').textContent = 'Rate limited — retrying in a moment...';
+          document.getElementById('loadingDesc').textContent = 'Waiting a few seconds before trying again';
+          await new Promise(r => setTimeout(r, 5000));
+          res = await fetch(`${apiUrl}/api/audit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(msg.payload),
+          });
+        }
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -830,11 +843,14 @@
         if (msg.fileKey) currentFileKey = msg.fileKey;
 
         renderResults(currentFlags, currentSummary);
-        btnAudit.disabled = false;
+
+        // Cooldown: keep button disabled for 5s after audit to prevent rapid-fire
+        setTimeout(() => { btnAudit.disabled = false; }, 5000);
         btnDiscord.disabled = currentFlags.length === 0;
       } catch (err) {
         showError('Audit Failed', err.message);
-        btnAudit.disabled = false;
+        // Still apply cooldown on error to prevent spamming a failing endpoint
+        setTimeout(() => { btnAudit.disabled = false; }, 3000);
       }
     }
 
