@@ -445,6 +445,18 @@
   let currentSummary = null;
   let currentFrameName = null;
   let currentFileKey = null;
+  let fileKeyResolve = null;
+
+  // Request file key from plugin sandbox (returns a promise)
+  function getFileKey() {
+    return new Promise((resolve) => {
+      if (currentFileKey) { resolve(currentFileKey); return; }
+      fileKeyResolve = resolve;
+      parent.postMessage({ pluginMessage: { type: 'get-file-key' } }, '*');
+      // Timeout after 3s so we don't hang forever
+      setTimeout(() => { if (fileKeyResolve) { fileKeyResolve(null); fileKeyResolve = null; } }, 3000);
+    });
+  }
 
   // ── Elements ──
   // ── Backend URL ──
@@ -585,8 +597,14 @@
         e.stopPropagation();
         const item = btn.closest('.flag-item');
         const nodeId = item.getAttribute('data-node-id');
-        if (!nodeId || !currentFileKey) {
-          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Cannot post comment — missing file key or node ID.' } }, '*');
+        if (!nodeId) {
+          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Cannot post comment — node ID missing.' } }, '*');
+          return;
+        }
+        // Get file key (cached or on-demand from sandbox)
+        const fileKey = await getFileKey();
+        if (!fileKey) {
+          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Cannot post comment — file key unavailable. Save the file and re-run the audit.' } }, '*');
           return;
         }
         btn.classList.add('sending');
@@ -595,7 +613,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              fileKey: currentFileKey,
+              fileKey,
               nodeId,
               flag: {
                 node: item.getAttribute('data-node-name'),
@@ -675,6 +693,12 @@
   window.onmessage = async (event) => {
     const msg = event.data.pluginMessage;
     if (!msg) return;
+
+    // Capture file key from init or on-demand request
+    if (msg.type === 'init' || msg.type === 'file-key') {
+      if (msg.fileKey) currentFileKey = msg.fileKey;
+      if (fileKeyResolve) { fileKeyResolve(msg.fileKey || null); fileKeyResolve = null; }
+    }
 
     if (msg.type === 'audit-payload') {
       const apiUrl = API_URL;

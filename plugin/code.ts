@@ -237,17 +237,24 @@ function buildAuditPayload(): AuditPayload | null {
 
 figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
 
+// Send file key to UI on startup so it's available early
+figma.ui.postMessage({ type: "init", fileKey: figma.fileKey });
+
 figma.ui.onmessage = (msg: { type: string; [key: string]: any }) => {
   if (msg.type === "run-audit") {
     const payload = buildAuditPayload();
     if (payload) {
-      // Send extracted data + file key to UI so it can make the HTTP call
       figma.ui.postMessage({
         type: "audit-payload",
         payload,
         fileKey: figma.fileKey,
       });
     }
+  }
+
+  if (msg.type === "get-file-key") {
+    // On-demand file key request (fallback if init didn't capture it)
+    figma.ui.postMessage({ type: "file-key", fileKey: figma.fileKey });
   }
 
   if (msg.type === "notify") {

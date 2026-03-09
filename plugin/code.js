@@ -137,6 +137,7 @@
     };
   }
   figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
+  figma.ui.postMessage({ type: "init", fileKey: figma.fileKey });
   figma.ui.onmessage = (msg) => {
     if (msg.type === "run-audit") {
       const payload = buildAuditPayload();
@@ -147,6 +148,9 @@
           fileKey: figma.fileKey
         });
       }
+    }
+    if (msg.type === "get-file-key") {
+      figma.ui.postMessage({ type: "file-key", fileKey: figma.fileKey });
     }
     if (msg.type === "notify") {
       figma.notify(msg.message);
