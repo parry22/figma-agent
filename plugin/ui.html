@@ -261,16 +261,23 @@
     line-height: 1.4;
   }
 
-  /* ── Spinner ── */
-  .spinner {
-    width: 24px;
-    height: 24px;
-    border: 3px solid var(--figma-color-border, #e5e5e5);
-    border-top-color: #5B6AF0;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+  /* ── Loader ── */
+  .loader-icon {
+    width: 40px;
+    height: 40px;
+    color: #5B6AF0;
+    animation: loaderPulse 1.6s ease-in-out infinite;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes loaderPulse {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(1.15) rotate(-8deg); opacity: 0.7; }
+  }
+  .loading-text {
+    transition: opacity 0.3s ease;
+  }
+  .loading-text.fade-out {
+    opacity: 0;
+  }
 </style>
 </head>
 <body>
@@ -299,9 +306,14 @@
 
   <!-- Loading State -->
   <div class="state hidden" id="stateLoading">
-    <div class="spinner"></div>
-    <div class="state-title">Auditing...</div>
-    <div class="state-desc">Extracting values and checking against the design system</div>
+    <svg class="loader-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <div class="loading-text">
+      <div class="state-title" id="loadingTitle">Snooping around your layers...</div>
+      <div class="state-desc" id="loadingDesc">Peeking at every frame, text, and color in your selection</div>
+    </div>
   </div>
 
   <!-- Error State -->
@@ -348,6 +360,48 @@
   const CATEGORY_ORDER = ['color', 'typography', 'spacing', 'corner-radius', 'component'];
   const CHEVRON_SVG = '<svg class="category-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2l4 4-4 4"/></svg>';
 
+  // ── Loading Phases ──
+  const LOADING_PHASES = [
+    { title: 'Snooping around your layers...', desc: 'Peeking at every frame, text, and color in your selection' },
+    { title: 'Judging your design choices...', desc: 'Checking fonts, colors, spacing, and radii against the system' },
+    { title: 'Almost there, writing notes...', desc: 'Wrapping up the report with fixes and suggestions' },
+  ];
+  let loadingPhase = 0;
+  let loadingInterval = null;
+
+  function startLoadingPhases() {
+    loadingPhase = 0;
+    const titleEl = document.getElementById('loadingTitle');
+    const descEl = document.getElementById('loadingDesc');
+    const textWrap = titleEl.parentElement;
+
+    // Set initial phase
+    titleEl.textContent = LOADING_PHASES[0].title;
+    descEl.textContent = LOADING_PHASES[0].desc;
+
+    loadingInterval = setInterval(() => {
+      loadingPhase++;
+      if (loadingPhase >= LOADING_PHASES.length) return; // stay on last phase
+
+      const phase = LOADING_PHASES[loadingPhase];
+
+      // Fade out
+      textWrap.classList.add('fade-out');
+      setTimeout(() => {
+        titleEl.textContent = phase.title;
+        descEl.textContent = phase.desc;
+        textWrap.classList.remove('fade-out');
+      }, 300);
+    }, 2500);
+  }
+
+  function stopLoadingPhases() {
+    if (loadingInterval) {
+      clearInterval(loadingInterval);
+      loadingInterval = null;
+    }
+  }
+
   // ── State ──
   let currentFlags = null;
   let currentSummary = null;
@@ -376,6 +430,13 @@
     stateClean.classList.toggle('hidden', state !== 'clean');
     resultsContainer.classList.toggle('hidden', state !== 'results');
     summaryBar.classList.toggle('visible', state === 'results' || state === 'clean');
+
+    // Manage loading phase cycle
+    if (state === 'loading') {
+      startLoadingPhases();
+    } else {
+      stopLoadingPhases();
+    }
   }
 
   function showError(title, desc) {
