@@ -398,8 +398,8 @@
   const errorTitle = document.getElementById('errorTitle');
   const errorDesc = document.getElementById('errorDesc');
 
-  // Default to localhost for local dev
-  apiUrlInput.value = 'http://localhost:3000';
+  // Default to production Vercel URL
+  apiUrlInput.value = 'https://figma-agent-delta.vercel.app';
 
   // ── UI State Management ──
   function showState(state) {
