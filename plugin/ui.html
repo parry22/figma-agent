@@ -314,6 +314,48 @@
   .loading-text.fade-out {
     opacity: 0;
   }
+
+  /* ── File Key Prompt ── */
+  .file-key-bar {
+    display: none;
+    padding: 8px 16px;
+    background: #FFFBEB;
+    border-bottom: 1px solid #FDE68A;
+    gap: 6px;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .file-key-bar.visible { display: flex; }
+  .file-key-bar label {
+    font-size: 11px;
+    color: #92400E;
+    font-weight: 500;
+  }
+  .file-key-bar .fk-row {
+    display: flex;
+    gap: 6px;
+  }
+  .file-key-bar input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid #FDE68A;
+    border-radius: 4px;
+    font-size: 11px;
+    outline: none;
+    background: #fff;
+  }
+  .file-key-bar input:focus { border-color: #F59E0B; }
+  .file-key-bar button {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 4px;
+    background: #F59E0B;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .file-key-bar button:hover { background: #D97706; }
 </style>
 </head>
 <body>
@@ -328,6 +370,15 @@
   <div class="actions">
     <button class="btn btn-primary" id="btnAudit">Check Design</button>
     <button class="btn btn-secondary" id="btnDiscord" disabled>Send to Discord</button>
+  </div>
+
+  <!-- File Key Prompt (shown when figma.fileKey is unavailable) -->
+  <div class="file-key-bar" id="fileKeyBar">
+    <label>Paste your Figma file URL to enable comments</label>
+    <div class="fk-row">
+      <input type="text" id="fileKeyInput" placeholder="https://figma.com/design/abc123/...">
+      <button id="fileKeySubmit">Link</button>
+    </div>
   </div>
 
   <!-- Summary Bar -->
@@ -446,17 +497,64 @@
   let currentFrameName = null;
   let currentFileKey = null;
   let fileKeyResolve = null;
+  let pendingCommentBtn = null; // button waiting for file key input
 
-  // Request file key from plugin sandbox (returns a promise)
+  // Extract file key from a Figma URL
+  function extractFileKey(url) {
+    try {
+      // Matches: figma.com/design/KEY/..., figma.com/file/KEY/..., figma.com/proto/KEY/...
+      const m = url.match(/figma\.com\/(?:design|file|proto)\/([a-zA-Z0-9]+)/);
+      return m ? m[1] : null;
+    } catch { return null; }
+  }
+
+  // Get file key: cached → sandbox → prompt user
   function getFileKey() {
     return new Promise((resolve) => {
       if (currentFileKey) { resolve(currentFileKey); return; }
-      fileKeyResolve = resolve;
+      // Try sandbox first
+      fileKeyResolve = (key) => {
+        if (key) { resolve(key); return; }
+        // Sandbox didn't have it — show prompt bar
+        resolve(null);
+      };
       parent.postMessage({ pluginMessage: { type: 'get-file-key' } }, '*');
-      // Timeout after 3s so we don't hang forever
-      setTimeout(() => { if (fileKeyResolve) { fileKeyResolve(null); fileKeyResolve = null; } }, 3000);
+      setTimeout(() => {
+        if (fileKeyResolve) { const fn = fileKeyResolve; fileKeyResolve = null; fn(null); }
+      }, 1500);
     });
   }
+
+  // File key prompt bar logic
+  const fileKeyBar = document.getElementById('fileKeyBar');
+  const fileKeyInput = document.getElementById('fileKeyInput');
+  const fileKeySubmit = document.getElementById('fileKeySubmit');
+
+  function showFileKeyPrompt() {
+    fileKeyBar.classList.add('visible');
+    fileKeyInput.focus();
+  }
+
+  function hideFileKeyPrompt() {
+    fileKeyBar.classList.remove('visible');
+    fileKeyInput.value = '';
+  }
+
+  function handleFileKeySubmit() {
+    const key = extractFileKey(fileKeyInput.value) || fileKeyInput.value.trim();
+    if (!key) return;
+    currentFileKey = key;
+    hideFileKeyPrompt();
+    parent.postMessage({ pluginMessage: { type: 'notify', message: 'File linked! Comments enabled.' } }, '*');
+    // Retry the pending comment if there was one
+    if (pendingCommentBtn) {
+      pendingCommentBtn.click();
+      pendingCommentBtn = null;
+    }
+  }
+
+  fileKeySubmit.addEventListener('click', handleFileKeySubmit);
+  fileKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleFileKeySubmit(); });
 
   // ── Elements ──
   // ── Backend URL ──
@@ -604,7 +702,9 @@
         // Get file key (cached or on-demand from sandbox)
         const fileKey = await getFileKey();
         if (!fileKey) {
-          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Cannot post comment — file key unavailable. Save the file and re-run the audit.' } }, '*');
+          // Show the prompt bar and save this button for retry
+          pendingCommentBtn = btn;
+          showFileKeyPrompt();
           return;
         }
         btn.classList.add('sending');
@@ -696,8 +796,11 @@
 
     // Capture file key from init or on-demand request
     if (msg.type === 'init' || msg.type === 'file-key') {
-      if (msg.fileKey) currentFileKey = msg.fileKey;
-      if (fileKeyResolve) { fileKeyResolve(msg.fileKey || null); fileKeyResolve = null; }
+      if (msg.fileKey) {
+        currentFileKey = msg.fileKey;
+        hideFileKeyPrompt();
+      }
+      if (fileKeyResolve) { const fn = fileKeyResolve; fileKeyResolve = null; fn(msg.fileKey || null); }
     }
 
     if (msg.type === 'audit-payload') {
