@@ -6,6 +6,7 @@
   "scripts": {
     "build:plugin": "esbuild plugin/code.ts --bundle --outfile=plugin/code.js --target=es2020 --format=iife",
     "watch:plugin": "esbuild plugin/code.ts --bundle --outfile=plugin/code.js --target=es2020 --format=iife --watch",
+    "vercel-build": "echo 'Serverless functions built by Vercel'",
     "build": "npm run build:plugin && tsc --project tsconfig.json",
     "dev": "vercel dev"
   },
@@ -21,6 +22,7 @@
     "esbuild": "^0.24.0",
     "express": "^5.2.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vercel": "^50.28.0"
   }
 }
