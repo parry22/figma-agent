@@ -288,13 +288,8 @@
   const errorTitle = document.getElementById('errorTitle');
   const errorDesc = document.getElementById('errorDesc');
 
-  // Load saved API URL
-  const savedUrl = localStorage.getItem('designAuditorApiUrl');
-  if (savedUrl) apiUrlInput.value = savedUrl;
-
-  apiUrlInput.addEventListener('change', () => {
-    localStorage.setItem('designAuditorApiUrl', apiUrlInput.value.trim());
-  });
+  // Default to localhost for local dev
+  apiUrlInput.value = 'http://localhost:3000';
 
   // ── UI State Management ──
   function showState(state) {

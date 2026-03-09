@@ -3,7 +3,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-const anthropic = new Anthropic();
+// Client created lazily so env vars are guaranteed to be loaded first
+let _anthropic: Anthropic | null = null;
+function getClient() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 
 // Load design system tokens at cold start
 const tokensPath = join(process.cwd(), "design-system", "tokens.md");
@@ -42,7 +47,7 @@ Rules:
 - Component instances from the library are fine. Non-instance nodes that appear to be common UI patterns (buttons, inputs, cards) should be flagged as potential detached components.
 - If no issues are found, return an empty flags array.
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this exact format, no markdown, no explanation:
 {
   "flags": [
     {
@@ -73,7 +78,6 @@ export default async function handler(
 ): Promise<void> {
   setCorsHeaders(res);
 
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
@@ -104,13 +108,13 @@ Frame: "${frameName}"
 Total nodes extracted: ${nodes.length}
 
 \`\`\`json
-${JSON.stringify(nodes, null, 2)}
+${JSON.stringify(nodes)}
 \`\`\`
 
 Audit these nodes against the design system and return the results as JSON.`;
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const message = await getClient().messages.create({
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMessage }],
@@ -123,12 +127,49 @@ Audit these nodes against the design system and return the results as JSON.`;
       return;
     }
 
-    // Parse JSON from response (handle markdown code blocks)
+    // Extract JSON from response — handle code blocks, trailing text, and truncation
     let jsonText = textBlock.text.trim();
-    if (jsonText.startsWith("```")) {
-      jsonText = jsonText
-        .replace(/^```(?:json)?\n?/, "")
-        .replace(/\n?```$/, "");
+
+    // Strip markdown code fences
+    jsonText = jsonText.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+
+    // Extract the outermost JSON object (ignore any text before/after)
+    const firstBrace = jsonText.indexOf("{");
+    if (firstBrace === -1) {
+      res.status(500).json({ error: "No JSON object found in Claude response" });
+      return;
+    }
+    jsonText = jsonText.substring(firstBrace);
+
+    // Find the matching closing brace by counting braces
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let endPos = -1;
+    for (let i = 0; i < jsonText.length; i++) {
+      const ch = jsonText[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "{") depth++;
+      if (ch === "}") { depth--; if (depth === 0) { endPos = i; break; } }
+    }
+
+    if (endPos > 0) {
+      jsonText = jsonText.substring(0, endPos + 1);
+    } else if (message.stop_reason === "max_tokens") {
+      // Truncated — close open structures
+      const lastBrace = jsonText.lastIndexOf("}");
+      if (lastBrace > 0) {
+        jsonText = jsonText.substring(0, lastBrace + 1);
+        const ob = (jsonText.match(/{/g) || []).length;
+        const cb = (jsonText.match(/}/g) || []).length;
+        const oB = (jsonText.match(/\[/g) || []).length;
+        const cB = (jsonText.match(/]/g) || []).length;
+        for (let i = 0; i < oB - cB; i++) jsonText += "]";
+        for (let i = 0; i < ob - cb; i++) jsonText += "}";
+      }
     }
 
     const auditResult = JSON.parse(jsonText);
