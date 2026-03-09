@@ -5,3 +5,4 @@ dist/
 .vercel/
 plugin/code.js
 *.js.map
+.vercel

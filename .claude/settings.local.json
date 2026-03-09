@@ -4,7 +4,11 @@
       "Bash(pandoc /Users/parry/Downloads/Design-Auditor-Proposal.docx -o /tmp/design-auditor-proposal.md)",
       "Bash(pip3 install defusedxml)",
       "Bash(python3 -c \":*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(npm install express dotenv tsx @types/express @types/node --save-dev)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s -X POST http://localhost:3000/api/audit -H \"Content-Type: application/json\" -d '{:*)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }
