@@ -29,7 +29,41 @@ export default async function handler(
     checks.tokensError = err.message;
   }
 
-  // Test Anthropic API connection
+  // Test basic outbound connectivity
+  try {
+    const r = await fetch("https://httpbin.org/get");
+    checks.outboundOk = true;
+    checks.outboundStatus = r.status;
+  } catch (err: any) {
+    checks.outboundOk = false;
+    checks.outboundError = err.message;
+  }
+
+  // Test direct fetch to Anthropic API
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": process.env.ANTHROPIC_API_KEY || "",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 10,
+        messages: [{ role: "user", content: "Say ok" }],
+      }),
+    });
+    const data = await r.json();
+    checks.directFetchOk = true;
+    checks.directFetchStatus = r.status;
+    checks.directFetchResponse = data;
+  } catch (err: any) {
+    checks.directFetchOk = false;
+    checks.directFetchError = err.message;
+  }
+
+  // Test Anthropic SDK
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const msg = await client.messages.create({
@@ -37,13 +71,13 @@ export default async function handler(
       max_tokens: 10,
       messages: [{ role: "user", content: "Say ok" }],
     });
-    checks.anthropicOk = true;
-    checks.anthropicResponse = msg.content[0];
+    checks.sdkOk = true;
+    checks.sdkResponse = msg.content[0];
   } catch (err: any) {
-    checks.anthropicOk = false;
-    checks.anthropicError = err.message;
-    checks.anthropicErrorType = err.constructor.name;
-    checks.anthropicStatus = err.status;
+    checks.sdkOk = false;
+    checks.sdkError = err.message;
+    checks.sdkErrorType = err.constructor.name;
+    checks.sdkCause = err.cause?.message;
   }
 
   res.status(200).json(checks);
