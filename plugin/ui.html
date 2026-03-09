@@ -723,14 +723,17 @@
               },
             }),
           });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP ${res.status}`);
+          }
           btn.classList.remove('sending');
           btn.classList.add('sent');
           btn.innerHTML = CHECK_ICON;
           parent.postMessage({ pluginMessage: { type: 'notify', message: 'Comment posted on Figma!' } }, '*');
         } catch (err) {
           btn.classList.remove('sending');
-          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Failed to post comment.' } }, '*');
+          parent.postMessage({ pluginMessage: { type: 'notify', message: err.message || 'Failed to post comment.' } }, '*');
         }
       });
     });

@@ -68,7 +68,7 @@ export default async function handler(
           message,
           client_meta: {
             node_id: nodeId,
-            node_offset: { x: 0, y: 0 },
+            node_offset: { x: 1, y: 1 },
           },
         }),
       }
@@ -76,8 +76,15 @@ export default async function handler(
 
     if (!figmaRes.ok) {
       const errorText = await figmaRes.text();
+      const status = figmaRes.status;
+      let hint = "";
+      if (status === 404) hint = "File not found — check the Figma URL.";
+      else if (status === 403) hint = "Access denied — token may lack permissions for this file.";
+      else if (status === 400) hint = "Bad request — node ID may be invalid.";
+      console.error(`Figma API ${status}:`, errorText);
       res.status(502).json({
-        error: "Figma API failed",
+        error: hint || "Figma API failed",
+        status,
         detail: errorText,
       });
       return;
