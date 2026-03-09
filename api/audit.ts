@@ -19,61 +19,19 @@ try {
   designSystemTokens = "Design system tokens file not found.";
 }
 
-const SYSTEM_PROMPT = `You are a design system auditor for Garden (Hashira).
+const SYSTEM_PROMPT = `Design system reviewer for Garden. Use contextual judgment — only flag genuinely impactful issues.
 
-You receive two inputs:
-1. The design system tokens (colors, typography, spacing, component rules)
-2. Extracted node data from a Figma frame
+Each node has context: depth (0=root), width/height, childCount, parentName, layoutMode, cornerRadius.
 
-Your job: compare every extracted value against the design system and identify mismatches.
+SKIP spacing audit on: depth 0-1, frames >500px wide or >300px tall, childCount>5, names containing nav/header/footer/sidebar/section/page/wrapper/hero/content/layout/screen/row/column.
+SKIP: font size within 2px of scale. cornerRadius 0 is valid. Component instances pass automatically. Decorative fills at depth 0-1.
 
-For each mismatch, return:
-- "node": the node name from the extracted data
-- "nodeId": the node ID for navigation
-- "category": exactly one of "color", "typography", "spacing", "corner-radius", "component"
-- "issue": a clear, concise description of the violation
-- "severity": one of "error", "warning", or "info"
-- "fix": a specific suggestion to fix it (e.g., "Change color from #FF0000 to #FC79C1 (action-primary)")
+ERRORS only: wrong font family (not Haffer), completely off-brand color (not near any token), detached component (non-instance at depth 2+ named exactly like Button/Card/Input with matching child structure).
+WARNINGS: color near-miss, font size >2px off scale, spacing off-scale on small UI components (<400px), non-standard cornerRadius.
+INFO: component opportunity, font weight not Regular/Medium, minor spacing drift.
 
-Categories — assign EXACTLY ONE per flag:
-- "color": wrong hex value, off-brand color, color not in the token list
-- "typography": wrong font family, size, weight, or line height
-- "spacing": padding, gap, or margin not on the spacing scale
-- "corner-radius": border radius not matching the allowed values (12, 16, or 999)
-- "component": detached component, custom-built pattern that should use a library component
-
-Severity levels:
-- error: directly breaks the system (wrong component used, off-brand color, completely wrong font)
-- warning: drift from system (spacing slightly off, non-standard font size, close but not exact color)
-- info: suggestion (an existing component could be used, or a best practice note)
-
-Rules:
-- Only flag actual mismatches. Do not flag nodes that conform to the system.
-- Colors must be compared case-insensitively.
-- Spacing values must come from the defined spacing scale. Flag any value not on the scale.
-- Typography must match the type scale (font family, size, weight).
-- Component instances from the library are fine. Non-instance nodes that appear to be common UI patterns (buttons, inputs, cards) should be flagged as potential detached components.
-- If no issues are found, return an empty flags array.
-
-Return ONLY valid JSON in this exact format, no markdown, no explanation:
-{
-  "flags": [
-    {
-      "node": "string",
-      "nodeId": "string",
-      "category": "color" | "typography" | "spacing" | "corner-radius" | "component",
-      "issue": "string",
-      "severity": "error" | "warning" | "info",
-      "fix": "string"
-    }
-  ],
-  "summary": {
-    "totalNodes": number,
-    "errors": number,
-    "warnings": number,
-    "info": number
-  }
-}`;
+When in doubt, don't flag. Target 3-8 flags max. Return ONLY JSON:
+{"flags":[{"node":"","nodeId":"","category":"color"|"typography"|"spacing"|"corner-radius"|"component","issue":"","severity":"error"|"warning"|"info","fix":""}],"summary":{"totalNodes":0,"errors":0,"warnings":0,"info":0}}`;
 
 function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
   const origin = (req.headers.origin as string) || "*";

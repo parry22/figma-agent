@@ -519,7 +519,7 @@
 
   // ── Button Handlers ──
   btnAudit.addEventListener('click', () => {
-    const apiUrl = apiUrlInput.value.trim();
+    const apiUrl = apiUrlInput.value.trim().replace(/\/+$/, '');
     if (!apiUrl) {
       showError('Backend URL required', 'Enter your Vercel deployment URL above.');
       return;
@@ -534,7 +534,7 @@
   btnDiscord.addEventListener('click', async () => {
     if (!currentFlags || !currentFrameName) return;
 
-    const apiUrl = apiUrlInput.value.trim();
+    const apiUrl = apiUrlInput.value.trim().replace(/\/+$/, '');
     btnDiscord.disabled = true;
     btnDiscord.textContent = 'Sending...';
 
@@ -573,7 +573,7 @@
     if (!msg) return;
 
     if (msg.type === 'audit-payload') {
-      const apiUrl = apiUrlInput.value.trim();
+      const apiUrl = apiUrlInput.value.trim().replace(/\/+$/, '');
       try {
         const res = await fetch(`${apiUrl}/api/audit`, {
           method: 'POST',

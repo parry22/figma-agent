@@ -70,6 +70,10 @@
 | radius-outer | 16 | Outer element, card corners |
 | radius-full | 999 | Fully rounded (pills, circles) |
 
+**Tolerance:**
+- 0px (sharp corners) is always acceptable
+- Values within 4px of a token (e.g., 8, 10, 14, 20) are near-matches, not hard violations
+
 ---
 
 ## Spacing Scale
@@ -91,8 +95,8 @@ All spacing (padding, gap, margins) must be from this scale:
 | space-20 | 80 |
 
 **Rules:**
-- No arbitrary spacing (e.g., 5px, 13px, 15px, 22px are violations)
-- Spacing values must match exactly from the scale above
+- The spacing scale applies to UI-level components (buttons, cards, form elements, badges)
+- Page-level layout containers (navbars, hero sections, sidebars, footers) may use any spacing for visual layout — these are intentional design decisions, not violations
 - Minimum touch target: 44px (for interactive elements)
 
 ---
@@ -118,6 +122,10 @@ The following UI patterns **must** use library components (not rebuilt custom):
 | Breadcrumbs | Breadcrumb | Navigation breadcrumbs |
 | Alerts | Alert / Banner | System messages |
 
-**Detection:** If a frame/group matches a component name (e.g., "Button", "Card") but is NOT an instance of the library component, flag it as detached or custom-built.
+**Detection:** A node should only be flagged as a detached component if ALL of the following are true:
+1. The node is NOT a component instance (isComponentInstance is false)
+2. The node name is an exact case-insensitive match to a required component name above
+3. The node's child structure resembles the expected component (e.g., a "Button" has a text child)
+4. The node is at depth 2+ (not a top-level layout frame)
 
 ---

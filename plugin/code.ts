@@ -20,8 +20,17 @@ interface NodeData {
     paddingLeft: number;
     gap: number;
   };
+  cornerRadius?: number | "mixed";
   isComponentInstance: boolean;
   componentName?: string;
+  // Context fields for smarter auditing
+  parentName: string | null;
+  parentType: string | null;
+  depth: number;
+  width: number;
+  height: number;
+  childCount: number;
+  layoutMode?: "HORIZONTAL" | "VERTICAL";
 }
 
 interface AuditPayload {
@@ -126,8 +135,19 @@ function extractSpacing(node: SceneNode): NodeData["spacing"] | undefined {
   };
 }
 
+// Extract corner radius from nodes that support it
+function extractCornerRadius(node: SceneNode): number | "mixed" | undefined {
+  if (!("cornerRadius" in node)) return undefined;
+  const cr = (node as any).cornerRadius;
+  if (cr === figma.mixed) return "mixed";
+  if (typeof cr === "number" && cr > 0) return cr;
+  return undefined;
+}
+
 // Recursively extract data from all nodes in a tree
-function traverseNode(node: SceneNode, results: NodeData[]): void {
+function traverseNode(node: SceneNode, results: NodeData[], depth: number): void {
+  const parent = node.parent;
+
   const data: NodeData = {
     id: node.id,
     name: node.name,
@@ -135,9 +155,26 @@ function traverseNode(node: SceneNode, results: NodeData[]): void {
     colors: extractColors(node),
     typography: extractTypography(node),
     spacing: extractSpacing(node),
+    cornerRadius: extractCornerRadius(node),
     isComponentInstance: node.type === "INSTANCE",
     componentName: undefined,
+    // Context fields
+    parentName: parent && parent.type !== "PAGE" ? parent.name : null,
+    parentType: parent ? parent.type : null,
+    depth: depth,
+    width: Math.round("width" in node ? (node as any).width : 0),
+    height: Math.round("height" in node ? (node as any).height : 0),
+    childCount: "children" in node ? (node as FrameNode).children.length : 0,
+    layoutMode: undefined,
   };
+
+  // Surface layoutMode at node level
+  if ("layoutMode" in node) {
+    const frame = node as FrameNode;
+    if (frame.layoutMode !== "NONE") {
+      data.layoutMode = frame.layoutMode as "HORIZONTAL" | "VERTICAL";
+    }
+  }
 
   if (node.type === "INSTANCE") {
     const instance = node as InstanceNode;
@@ -151,6 +188,7 @@ function traverseNode(node: SceneNode, results: NodeData[]): void {
     data.colors.length > 0 ||
     data.typography !== undefined ||
     data.spacing !== undefined ||
+    data.cornerRadius !== undefined ||
     data.isComponentInstance;
 
   if (hasData) {
@@ -160,7 +198,7 @@ function traverseNode(node: SceneNode, results: NodeData[]): void {
   // Recurse into children
   if ("children" in node) {
     for (const child of (node as FrameNode).children) {
-      traverseNode(child, results);
+      traverseNode(child, results, depth + 1);
     }
   }
 }
@@ -179,7 +217,7 @@ function buildAuditPayload(): AuditPayload | null {
 
   const rootNode = selection[0];
   const nodes: NodeData[] = [];
-  traverseNode(rootNode, nodes);
+  traverseNode(rootNode, nodes, 0);
 
   if (nodes.length === 0) {
     figma.ui.postMessage({
