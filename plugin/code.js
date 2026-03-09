@@ -137,7 +137,10 @@
     };
   }
   figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
-  figma.ui.postMessage({ type: "init", fileKey: figma.fileKey });
+  function resolveFileKey() {
+    return figma.fileKey || figma.root.getPluginData("fileKey") || void 0;
+  }
+  figma.ui.postMessage({ type: "init", fileKey: resolveFileKey() });
   figma.ui.onmessage = (msg) => {
     if (msg.type === "run-audit") {
       const payload = buildAuditPayload();
@@ -145,12 +148,17 @@
         figma.ui.postMessage({
           type: "audit-payload",
           payload,
-          fileKey: figma.fileKey
+          fileKey: resolveFileKey()
         });
       }
     }
     if (msg.type === "get-file-key") {
-      figma.ui.postMessage({ type: "file-key", fileKey: figma.fileKey });
+      figma.ui.postMessage({ type: "file-key", fileKey: resolveFileKey() });
+    }
+    if (msg.type === "store-file-key") {
+      if (msg.fileKey) {
+        figma.root.setPluginData("fileKey", msg.fileKey);
+      }
     }
     if (msg.type === "notify") {
       figma.notify(msg.message);

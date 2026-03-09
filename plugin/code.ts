@@ -237,8 +237,13 @@ function buildAuditPayload(): AuditPayload | null {
 
 figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
 
-// Send file key to UI on startup so it's available early
-figma.ui.postMessage({ type: "init", fileKey: figma.fileKey });
+// Resolve file key: figma.fileKey (works in published plugins) → stored pluginData (persisted)
+function resolveFileKey(): string | undefined {
+  return figma.fileKey || figma.root.getPluginData("fileKey") || undefined;
+}
+
+// Send file key to UI on startup
+figma.ui.postMessage({ type: "init", fileKey: resolveFileKey() });
 
 figma.ui.onmessage = (msg: { type: string; [key: string]: any }) => {
   if (msg.type === "run-audit") {
@@ -247,14 +252,20 @@ figma.ui.onmessage = (msg: { type: string; [key: string]: any }) => {
       figma.ui.postMessage({
         type: "audit-payload",
         payload,
-        fileKey: figma.fileKey,
+        fileKey: resolveFileKey(),
       });
     }
   }
 
   if (msg.type === "get-file-key") {
-    // On-demand file key request (fallback if init didn't capture it)
-    figma.ui.postMessage({ type: "file-key", fileKey: figma.fileKey });
+    figma.ui.postMessage({ type: "file-key", fileKey: resolveFileKey() });
+  }
+
+  if (msg.type === "store-file-key") {
+    // Persist file key in the document so it's available next session
+    if (msg.fileKey) {
+      figma.root.setPluginData("fileKey", msg.fileKey);
+    }
   }
 
   if (msg.type === "notify") {

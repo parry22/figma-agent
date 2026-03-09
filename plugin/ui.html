@@ -545,7 +545,9 @@
     if (!key) return;
     currentFileKey = key;
     hideFileKeyPrompt();
-    parent.postMessage({ pluginMessage: { type: 'notify', message: 'File linked! Comments enabled.' } }, '*');
+    // Persist in the Figma file so user never has to paste again
+    parent.postMessage({ pluginMessage: { type: 'store-file-key', fileKey: key } }, '*');
+    parent.postMessage({ pluginMessage: { type: 'notify', message: 'File linked! You won\'t need to do this again.' } }, '*');
     // Retry the pending comment if there was one
     if (pendingCommentBtn) {
       pendingCommentBtn.click();
@@ -825,7 +827,7 @@
         currentFlags = data.flags || [];
         currentSummary = data.summary || { totalNodes: 0, errors: 0, warnings: 0, info: 0 };
         currentFrameName = msg.payload.frameName;
-        currentFileKey = msg.fileKey || null;
+        if (msg.fileKey) currentFileKey = msg.fileKey;
 
         renderResults(currentFlags, currentSummary);
         btnAudit.disabled = false;

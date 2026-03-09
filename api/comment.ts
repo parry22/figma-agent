@@ -30,7 +30,6 @@ export default async function handler(
     return;
   }
 
-  // Trim to remove any trailing newlines from env var
   const figmaToken = process.env.FIGMA_ACCESS_TOKEN?.trim();
   if (!figmaToken) {
     res.status(500).json({ error: "Figma access token not configured" });
@@ -54,28 +53,11 @@ export default async function handler(
       return;
     }
 
-    // Step 1: Verify file access
-    const verifyRes = await fetch(
-      `https://api.figma.com/v1/files/${fileKey}?depth=1`,
-      {
-        headers: { "X-Figma-Token": figmaToken },
-      }
-    );
-
-    if (!verifyRes.ok) {
-      const status = verifyRes.status;
-      let hint = "Cannot access Figma file.";
-      if (status === 404) hint = "File not found — check the Figma URL.";
-      else if (status === 403) hint = "Access denied — token can't access this file.";
-      res.status(502).json({ error: hint, step: "verify", status });
-      return;
-    }
-
     const emoji = SEVERITY_EMOJI[flag.severity] || "⚪";
     const message = `${emoji} ${flag.issue}\n\n💡 Fix: ${flag.fix}`;
 
-    // Step 2: Try posting comment pinned to the node (FrameOffset format)
-    let figmaRes = await fetch(
+    // Single POST — no verification step, no retry (avoids rate limits)
+    const figmaRes = await fetch(
       `https://api.figma.com/v1/files/${fileKey}/comments`,
       {
         method: "POST",
@@ -93,36 +75,16 @@ export default async function handler(
       }
     );
 
-    // Step 3: If FrameOffset failed, fall back to simple Vector (file-level comment)
-    if (!figmaRes.ok) {
-      const firstError = await figmaRes.text();
-      console.error(`FrameOffset comment failed (${figmaRes.status}):`, firstError);
-
-      figmaRes = await fetch(
-        `https://api.figma.com/v1/files/${fileKey}/comments`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Figma-Token": figmaToken,
-          },
-          body: JSON.stringify({
-            message: `${message}\n\n📍 Node: ${flag.node} (${nodeId})`,
-            client_meta: { x: 100, y: 100 },
-          }),
-        }
-      );
-    }
-
     if (!figmaRes.ok) {
       const errorText = await figmaRes.text();
       const status = figmaRes.status;
-      console.error(`Figma comment API ${status}:`, errorText);
-      res.status(502).json({
-        error: `Figma rejected comment (${status})`,
-        status,
-        detail: errorText,
-      });
+      let hint = `Figma API error (${status})`;
+      if (status === 404) hint = "File not found — check the Figma URL.";
+      else if (status === 403) hint = "Access denied — token can't access this file.";
+      else if (status === 400) hint = "Bad request — node ID may be invalid.";
+      else if (status === 429) hint = "Rate limited — wait a moment and try again.";
+      console.error(`Figma API ${status}:`, errorText);
+      res.status(502).json({ error: hint, status, detail: errorText });
       return;
     }
 
