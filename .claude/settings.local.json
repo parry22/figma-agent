@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pandoc /Users/parry/Downloads/Design-Auditor-Proposal.docx -o /tmp/design-auditor-proposal.md)",
+      "Bash(pip3 install defusedxml)",
+      "Bash(python3 -c \":*)",
+      "Bash(npm install)"
+    ]
+  }
+}

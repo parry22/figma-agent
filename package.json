@@ -1,0 +1,21 @@
+{
+  "name": "design-auditor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Figma plugin for automated design system QA powered by Claude",
+  "scripts": {
+    "build:plugin": "esbuild plugin/code.ts --bundle --outfile=plugin/code.js --target=es2020 --format=iife",
+    "watch:plugin": "esbuild plugin/code.ts --bundle --outfile=plugin/code.js --target=es2020 --format=iife --watch",
+    "build": "npm run build:plugin && tsc --project tsconfig.json",
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.104.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0",
+    "@vercel/node": "^5.0.0"
+  }
+}
