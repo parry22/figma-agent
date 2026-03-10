@@ -37,6 +37,7 @@ interface AuditPayload {
   frameName: string;
   nodes: NodeData[];
   screenshot?: string; // base64 JPEG of the frame for visual context
+  rootNodeId: string; // ID of the selected frame — used for comment anchoring
 }
 
 // Convert Figma RGB (0-1) to hex
@@ -256,6 +257,7 @@ async function buildAuditPayload(): Promise<AuditPayload | null> {
     frameName: rootNode.name,
     nodes,
     screenshot,
+    rootNodeId: rootNode.id,
   };
 }
 

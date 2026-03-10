@@ -14,6 +14,18 @@ function setCorsHeaders(req: VercelRequest, res: VercelResponse): void {
   res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 
+// Sanitize node ID for Figma Comment API.
+// Instance nodes have composite IDs like "I123:456;789:101" which the API rejects.
+// Extract just the first simple "123:456" segment.
+function sanitizeNodeId(id: string): string {
+  // Strip leading "I" prefix from instance IDs
+  let clean = id.startsWith("I") ? id.substring(1) : id;
+  // Take only the first segment before any semicolon
+  const semiIdx = clean.indexOf(";");
+  if (semiIdx > 0) clean = clean.substring(0, semiIdx);
+  return clean;
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -37,9 +49,10 @@ export default async function handler(
   }
 
   try {
-    const { fileKey, nodeId, flag } = req.body as {
+    const { fileKey, nodeId, rootNodeId, flag } = req.body as {
       fileKey: string;
       nodeId: string;
+      rootNodeId?: string;
       flag: {
         node: string;
         issue: string;
@@ -54,34 +67,49 @@ export default async function handler(
     }
 
     const emoji = SEVERITY_EMOJI[flag.severity] || "⚪";
-    const message = `${emoji} ${flag.issue}\n\n💡 Fix: ${flag.fix}`;
+    const message = `${emoji} [${flag.node}] ${flag.issue}\n\n💡 Fix: ${flag.fix}`;
 
-    // Single POST — no verification step, no retry (avoids rate limits)
-    const figmaRes = await fetch(
-      `https://api.figma.com/v1/files/${fileKey}/comments`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Figma-Token": figmaToken,
-        },
-        body: JSON.stringify({
-          message,
-          client_meta: {
-            node_id: nodeId,
-            node_offset: { x: 1, y: 1 },
+    // Try posting with the sanitized flag node ID first
+    const anchorId = sanitizeNodeId(nodeId);
+
+    const postComment = async (anchorNodeId: string) => {
+      return fetch(
+        `https://api.figma.com/v1/files/${fileKey}/comments`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Figma-Token": figmaToken,
           },
-        }),
+          body: JSON.stringify({
+            message,
+            client_meta: {
+              node_id: anchorNodeId,
+              node_offset: { x: 1, y: 1 },
+            },
+          }),
+        }
+      );
+    };
+
+    let figmaRes = await postComment(anchorId);
+
+    // If the node ID was rejected (400), fallback to the root frame ID
+    if (figmaRes.status === 400 && rootNodeId) {
+      const fallbackId = sanitizeNodeId(rootNodeId);
+      if (fallbackId !== anchorId) {
+        console.log(`Node ID ${anchorId} rejected, falling back to root ${fallbackId}`);
+        figmaRes = await postComment(fallbackId);
       }
-    );
+    }
 
     if (!figmaRes.ok) {
       const errorText = await figmaRes.text();
       const status = figmaRes.status;
       let hint = `Figma API error (${status})`;
-      if (status === 404) hint = "File not found — check the Figma URL.";
+      if (status === 404) hint = "File not found — check your Figma access token permissions.";
       else if (status === 403) hint = "Access denied — token can't access this file.";
-      else if (status === 400) hint = "Bad request — node ID may be invalid.";
+      else if (status === 400) hint = "Bad request — could not anchor comment to this node.";
       else if (status === 429) hint = "Rate limited — wait a moment and try again.";
       console.error(`Figma API ${status}:`, errorText);
       res.status(502).json({ error: hint, status, detail: errorText });

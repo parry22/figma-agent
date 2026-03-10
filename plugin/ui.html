@@ -350,47 +350,29 @@
     opacity: 0;
   }
 
-  /* ── File Key Prompt ── */
-  .file-key-bar {
-    display: none;
-    padding: 8px 16px;
-    background: #FFFBEB;
-    border-bottom: 1px solid #FDE68A;
-    gap: 6px;
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-  .file-key-bar.visible { display: flex; }
-  .file-key-bar label {
-    font-size: 11px;
-    color: #92400E;
-    font-weight: 500;
-  }
-  .file-key-bar .fk-row {
-    display: flex;
-    gap: 6px;
-  }
-  .file-key-bar input {
-    flex: 1;
-    padding: 4px 8px;
-    border: 1px solid #FDE68A;
-    border-radius: 4px;
-    font-size: 11px;
-    outline: none;
-    background: #fff;
-  }
-  .file-key-bar input:focus { border-color: #F59E0B; }
-  .file-key-bar button {
-    padding: 4px 10px;
-    border: none;
-    border-radius: 4px;
-    background: #F59E0B;
+  /* ── Toast notification ── */
+  .toast {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%) translateY(60px);
+    background: #1e293b;
     color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
     font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    pointer-events: none;
+    z-index: 100;
+    white-space: nowrap;
   }
-  .file-key-bar button:hover { background: #D97706; }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
 </style>
 </head>
 <body>
@@ -407,14 +389,8 @@
     <button class="btn btn-secondary" id="btnDiscord" disabled>Send to Discord</button>
   </div>
 
-  <!-- File Key Prompt (shown when figma.fileKey is unavailable) -->
-  <div class="file-key-bar" id="fileKeyBar">
-    <label>Paste your Figma file URL to enable comments</label>
-    <div class="fk-row">
-      <input type="text" id="fileKeyInput" placeholder="https://figma.com/design/abc123/...">
-      <button id="fileKeySubmit">Link</button>
-    </div>
-  </div>
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
 
   <!-- Summary Bar -->
   <div class="summary" id="summary"></div>
@@ -550,60 +526,18 @@
   let currentSummary = null;
   let currentFrameName = null;
   let currentFileKey = null;
-  let fileKeyResolve = null;
-  let pendingCommentBtn = null;
+  let currentRootNodeId = null;
   let activeFilter = 'all'; // 'all' | 'error' | 'warning' | 'info'
 
-  function extractFileKey(url) {
-    try {
-      const m = url.match(/figma\.com\/(?:design|file|proto|board)\/([a-zA-Z0-9_-]+)/);
-      return m ? m[1] : null;
-    } catch { return null; }
+  // ── Toast helper ──
+  let toastTimer = null;
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
   }
-
-  function getFileKey() {
-    return new Promise((resolve) => {
-      if (currentFileKey) { resolve(currentFileKey); return; }
-      fileKeyResolve = (key) => {
-        if (key) { resolve(key); return; }
-        resolve(null);
-      };
-      parent.postMessage({ pluginMessage: { type: 'get-file-key' } }, '*');
-      setTimeout(() => {
-        if (fileKeyResolve) { const fn = fileKeyResolve; fileKeyResolve = null; fn(null); }
-      }, 1500);
-    });
-  }
-
-  const fileKeyBar = document.getElementById('fileKeyBar');
-  const fileKeyInput = document.getElementById('fileKeyInput');
-  const fileKeySubmit = document.getElementById('fileKeySubmit');
-
-  function showFileKeyPrompt() {
-    fileKeyBar.classList.add('visible');
-    fileKeyInput.focus();
-  }
-
-  function hideFileKeyPrompt() {
-    fileKeyBar.classList.remove('visible');
-    fileKeyInput.value = '';
-  }
-
-  function handleFileKeySubmit() {
-    const key = extractFileKey(fileKeyInput.value) || fileKeyInput.value.trim();
-    if (!key) return;
-    currentFileKey = key;
-    hideFileKeyPrompt();
-    parent.postMessage({ pluginMessage: { type: 'store-file-key', fileKey: key } }, '*');
-    parent.postMessage({ pluginMessage: { type: 'notify', message: 'File linked! You won\'t need to do this again.' } }, '*');
-    if (pendingCommentBtn) {
-      pendingCommentBtn.click();
-      pendingCommentBtn = null;
-    }
-  }
-
-  fileKeySubmit.addEventListener('click', handleFileKeySubmit);
-  fileKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleFileKeySubmit(); });
 
   // ── Elements ──
   const API_URL = 'https://figma-agent-delta.vercel.app';
@@ -765,15 +699,13 @@
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const item = btn.closest('.flag-item');
-        const nodeId = item.getAttribute('data-node-id');
+        const nodeId = item.getAttribute('data-node-id') || currentRootNodeId;
         if (!nodeId) {
-          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Cannot post comment — node ID missing.' } }, '*');
+          showToast('Cannot post comment — no node ID available.');
           return;
         }
-        const fileKey = await getFileKey();
-        if (!fileKey) {
-          pendingCommentBtn = btn;
-          showFileKeyPrompt();
+        if (!currentFileKey) {
+          showToast('File key not available — try reopening the plugin.');
           return;
         }
         btn.classList.add('sending');
@@ -782,8 +714,9 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              fileKey,
+              fileKey: currentFileKey,
               nodeId,
+              rootNodeId: currentRootNodeId,
               flag: {
                 node: item.getAttribute('data-node-name'),
                 issue: item.getAttribute('data-issue'),
@@ -799,10 +732,10 @@
           btn.classList.remove('sending');
           btn.classList.add('sent');
           btn.innerHTML = CHECK_ICON;
-          parent.postMessage({ pluginMessage: { type: 'notify', message: 'Comment posted on Figma!' } }, '*');
+          showToast('Comment posted on Figma!');
         } catch (err) {
           btn.classList.remove('sending');
-          parent.postMessage({ pluginMessage: { type: 'notify', message: err.message || 'Failed to post comment.' } }, '*');
+          showToast(err.message || 'Failed to post comment.');
         }
       });
     });
@@ -871,9 +804,7 @@
     if (msg.type === 'init' || msg.type === 'file-key') {
       if (msg.fileKey) {
         currentFileKey = msg.fileKey;
-        hideFileKeyPrompt();
       }
-      if (fileKeyResolve) { const fn = fileKeyResolve; fileKeyResolve = null; fn(msg.fileKey || null); }
     }
 
     if (msg.type === 'audit-payload') {
@@ -906,6 +837,7 @@
         currentSummary = data.summary || { totalNodes: 0, errors: 0, warnings: 0, info: 0 };
         currentFrameName = msg.payload.frameName;
         if (msg.fileKey) currentFileKey = msg.fileKey;
+        if (msg.payload.rootNodeId) currentRootNodeId = msg.payload.rootNodeId;
 
         renderResults(currentFlags, currentSummary);
 
